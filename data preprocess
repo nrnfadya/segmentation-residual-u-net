@@ -1,0 +1,88 @@
+import os, glob, re, cv2
+import numpy as np
+import albumentations as A
+import pandas as pd
+import matplotlib.pyplot as plt
+import tensorflow as tf
+import seaborn as sns
+import pickle
+from tensorflow.keras.utils import to_categorical
+from sklearn.model_selection import train_test_split
+from tensorflow import keras
+from tensorflow.keras import layers, activations, optimizers, losses, metrics, initializers
+from tensorflow.keras.preprocessing.image import load_img, img_to_array
+from tensorflow.keras import Model, Input
+from tensorflow.keras.layers import Conv2D, BatchNormalization, Activation, Add, MaxPooling2D, UpSampling2D, Concatenate, GlobalAveragePooling2D, Reshape, multiply, AveragePooling2D
+%matplotlib inline
+
+def preprocess_image(img, shape=256, use_gaussian_blur=False):
+    # Resize
+    img = cv2.resize(img, (shape, shape))
+    # Normalize to [0,1]
+    img = img.astype(np.float32) / 255.0
+    # Gaussian Blur
+    if use_gaussian_blur:
+        img = cv2.GaussianBlur(img, (3,3),0)
+    return img
+
+def preprocess_mask(mask, shape=256):
+    # Resize and keep as integer labels
+    mask = cv2.resize(mask, (shape, shape), interpolation=cv2.INTER_NEAREST)
+    mask[mask == 128] = 1
+    mask[mask == 255] = 2
+    return mask
+
+framObjTrain = {'img' : [],
+           'mask' : []
+          }
+def LoadData(frameObj=None, imgPath=None, maskPath=None, shape=256):
+    if frameObj is None:
+        frameObj = {'img': [], 'mask': []}
+        
+    imgNames = os.listdir(imgPath)
+    unames = [imgNames[i].split(')')[0] for i in range(len(imgNames)) if '.png' in imgNames[i]]
+    unames = list(set(unames))
+
+    for uname in unames:
+        img_name = f'{uname}).png'
+        mask_name = f'{uname})_mask.png'
+
+        img_path = os.path.join(imgPath, img_name)
+        mask_path = os.path.join(maskPath, mask_name)
+
+        if not os.path.exists(mask_path):
+            print(f"Mask tidak ditemukan: {mask_path}")
+            continue
+
+        # Baca gambar
+        img = cv2.imread(img_path)
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        img = cv2.resize(img, (shape, shape))
+
+        # Baca dan ubah mask
+        mask = cv2.imread(mask_path, cv2.IMREAD_GRAYSCALE)
+        mask = cv2.resize(mask, (shape, shape), interpolation=cv2.INTER_NEAREST)
+
+        mask[mask == 128] = 0  
+        mask[mask == 255] = 1  
+        mask[(mask != 0) & (mask != 1)] = 0  
+
+        frameObj['img'].append(img.astype(np.float32)/255.0)
+        frameObj['mask'].append(mask.astype(np.uint8))
+
+    return frameObj
+
+# Load data
+framObjTrain = LoadData(framObjTrain, imgPath='Dataset_BUSI_with_GT/benign',
+                        maskPath='Dataset_BUSI_with_GT/benign',
+                        shape=256)
+
+framObjTrain = LoadData(framObjTrain, imgPath='Dataset_BUSI_with_GT/malignant',
+                        maskPath='Dataset_BUSI_with_GT/malignant',
+                        shape=256)
+
+for i in range(len(framObjTrain['img'])):
+    img = framObjTrain['img'][i]
+    mask = framObjTrain['mask'][i]
+    assert img.shape == (256, 256, 3), f"Shape gambar ke-{i} salah: {img.shape}"
+    assert mask.shape == (256, 256), f"Shape mask ke-{i} salah: {mask.shape}"
